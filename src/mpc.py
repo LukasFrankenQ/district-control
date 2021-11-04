@@ -1,3 +1,4 @@
+
 import sys
 import os
 import pypsa
@@ -6,7 +7,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from itertools import product
 plt.style.use('bmh')
-from datetime import datetime
 
 
 class Controller:
@@ -115,7 +115,16 @@ class Controller:
         self.controls_t = self.controls_t.append(curr_control, ignore_index=True)
         self.costs_t = self.costs_t.append(curr_costs, ignore_index=True)
 
+        # set constraints for next lopf
 
+        print('Before setting constraints:')
+        self.show_controllables(network)
+        for (key, item), address in zip(curr_control.items(), self.addresses):
+
+            self.set_constraint(network, address, item)
+        
+        print('After setting constraints:')
+        self.show_controllables(network)
 
 
     def set_constraint(self, network, address, value):
@@ -139,10 +148,18 @@ class Controller:
         
         """
 
-        upper_b
+        component, name = address
 
+        upper = pd.Series([value] + np.ones(self.horizon-1).tolist())
+        lower = pd.Series([value] + np.zeros(self.horizon-1).tolist())
 
+        if component in {'generators', 'loads', 'links'}:
+            getattr(getattr(network, component+'_t'), 'p_min_pu')[name] = lower
+            getattr(getattr(network, component+'_t'), 'p_max_pu')[name] = upper
 
+        elif component == {'stores'}:
+            getattr(getattr(network, component+'_t'), 'e_min_pu')[name] = lower
+            getattr(getattr(network, component+'_t'), 'e_max_pu')[name] = upper
 
 
     def get_addresses(self, network, controls):   
@@ -246,11 +263,43 @@ class Controller:
             cost = marginal_cost[name]
 
         return cost
-        
+
+
+    def show_controllables(self, network):
+        '''
+        Prints time series, i.e. controls of current network
+
+        Parameters
+        ----------
+        network : pypsa.Network
+            network under investigation
+
+        Returns
+        ----------
+        -
+        '''
+
+        components = set([address[0] for address in self.addresses])
+
+        for component in components:
+            
+            print('For {}:'.format(component))
+            if component == 'stores':
+                lower = getattr(network, component+'_t').e_min_pu 
+                upper = getattr(network, component+'_t').e_max_pu 
+
+            else:
+                lower = getattr(network, component+'_t').p_min_pu 
+                upper = getattr(network, component+'_t').p_max_pu 
+
+            for ts, name in zip([upper, lower], ['upper', 'lower']):
+                if not ts.empty:
+                    print('{}: {}'.format(name, ts))
+                else:                 
+                    print('{} is empty'.format(name))
 
 
 if __name__ == '__main__':
-
     print(os.getcwd())
     sys.path.append(os.path.join(os.getcwd(), 'src', 'utils'))
 
@@ -266,3 +315,6 @@ if __name__ == '__main__':
     mpc.mpc_step(network)
 
     print('Its a done job init!')
+
+    fig, ax = plt.subplots(1, 1)
+    plt.show()

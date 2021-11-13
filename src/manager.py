@@ -25,21 +25,21 @@ class Manager:
         longitude of place of interest
     lat : float
         latitude of place of interest
-    responsibilities : list of str
-        list can contain
-            'generation' for prediction of renewable generation
-        
-            'demand' for prediction of energy demand
-
-            'market' for prediction of market prices
-    'mode' : str
-        determines source of returned time series
-            'adversarial' returns time series from database but 
-                          superimposed with noise (for testing purposes)
-                          noise in increases in magnitude in later parts of
-                          the returned series
-            'predict' returns time series from machine learning model
-                      based on real data in current time step
+    configs : dict of dicts
+        has keys:
+            'name' which can have item:
+                'pv' for prediction of solar power generation
+                'wind' for prediction of wind power generation
+                'demand' for prediction of energy demand
+                'market' for prediction of market prices
+            'mode'
+                'simulate'  returns time series from database but 
+                            superimposed with noise (for testing purposes)
+                            noise in increases in magnitude in later parts of
+                            the returned series
+                'predict' returns time series from machine learning model
+                          based on real data in current time step
+            'source' file to source of data or model
     'prophets' : dict
         keeps a dictionary of the prophets and their respective tasks
 
@@ -63,7 +63,7 @@ class Manager:
         based on config (please find method for more details)
     """
 
-    def __init__(self, when_where, responsibilities, mode='adversarial'):
+    def __init__(self, when_where, configs):
         """
         sets prophets that are needed to satisfy the
         responsibilities
@@ -72,15 +72,16 @@ class Manager:
         ----------
         when_where : dict
             holds spatio-temporal information of area of interest
-        responsibilities : list of str
-            list of required models
-        mode : str
-            'adversarial'->returns synthetically noised time series
-            'predict'->returns time series from ML model
-
+        configs : dict of dicts 
+            dictionary of config dictionaries, each referring a required prophet
+            each config should contain:
+                'name': [can be 'wind', 'pv', 'house' or ...]
+                'mode': [can be 'predict' or 'simulate' ...]
+                'source': path to source file. if mode is 'predict' this
+                          will be understood as path to model. if mode is
+                          'simulate' this will be understood as path to data'
         """
-        self.responsibilities = responsibilities
-        self.mode = mode
+        self.configs = configs 
 
         assert ['start', 'end', 'time_step', 'city'] == list(when_where.keys()), \
                 'when_where dict must have keys start, end, time_step and city \
@@ -95,8 +96,20 @@ class Manager:
         city = Nominatim(user_agent='dummy').geocode(when_where['city'])
         print('Working with {}'.format(city.address))
         print('With coordinates {}, {}'.format(city.latitude, city.longitude))
-        self.lon = city.longitude 
-        self.lat = city.latitude 
+        self.lon = city.longitude
+        self.lat = city.latitude
+
+        for key, config in configs.items():
+            assert 'name' in list(config.keys()) and \
+                    'mode' in list(config.keys()) and \
+                    'source' in list(config.keys()), 'config {} must contain keys \
+                    name, mode and source, but contains {}'.format(key, config.keys())
+
+            setup_method = getattr(self, 'setup_'+config['name']+'_prophet')
+            self.configs[key]['prophet'] = setup_method(config)
+
+
+
 
 
 
@@ -121,7 +134,7 @@ if __name__ == "__main__":
 
     print(list(when_where.keys()))
     responsibilities = ['wind', 'pv', 'demand']
-    manager = Manager(when_where, responsibilities)
+    manager = Manager(when_where, responsibilities, )
 
 
 

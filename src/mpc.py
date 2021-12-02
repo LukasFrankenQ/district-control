@@ -92,19 +92,37 @@ class Controller:
         self.op_cost = 0.
 
 
-    def mpc_step(self, network):
+    def mpc_step(self, network, prophet):
         """
-        Main method of Controller; Executes the following:
+        Main method of Controller; 
+
+        Roles time forward and sets up constraints for the next lopf 
+        These constraints are defined by two aspects: 
+
+            First, the results of the previous lopf, making the outcome of the 
+            previous optimization the initial conditions of the next timestep
+
+            Secondly, we call prophet and obtain the most recent data and prediction
+            on renewable generation, demand and market prices 
+        
+            Executes the following:
+
             1) Extracts the next control operation proposed by lopf
-            2) TBD: Compares the proposed control to constraints posed
-               prediction errors 
-            3) roles the lopf optimization forward: by setting up
-               initial conditions for the next lopf optimization
+            2) Sets up the resulting control as initial conditions for next optimization
+            
+            3) Obtains new predictions from prophet
+            4) Compares constraints posed by control and by predictions and sets up
+               overall constrains that conform with both
+
+            5) Error magagement stage
 
         Parameters
         ----------
         network : pypsa.Network
             subject to control
+
+        prophet : Prophet as in prophet.py
+            responsible for updating predictions
         """
 
         # obtain next mpc step from lopf network
@@ -114,6 +132,7 @@ class Controller:
         # store control and marginal cost at current snapshot
         self.controls_t = self.controls_t.append(curr_control, ignore_index=True)
         self.costs_t = self.costs_t.append(curr_costs, ignore_index=True)
+
 
         # set constraints for next lopf
 
@@ -157,7 +176,7 @@ class Controller:
             getattr(getattr(network, component+'_t'), 'p_min_pu')[name] = lower
             getattr(getattr(network, component+'_t'), 'p_max_pu')[name] = upper
 
-        elif component == {'stores'}:
+        elif component == 'stores':
             getattr(getattr(network, component+'_t'), 'e_min_pu')[name] = lower
             getattr(getattr(network, component+'_t'), 'e_max_pu')[name] = upper
 
@@ -292,9 +311,9 @@ class Controller:
                 lower = getattr(network, component+'_t').p_min_pu 
                 upper = getattr(network, component+'_t').p_max_pu 
 
-            for ts, name in zip([upper, lower], ['upper', 'lower']):
-                if not ts.empty:
-                    print('{}: {}'.format(name, ts))
+            for name in ['upper', 'lower']:
+                if not eval(name).empty:
+                    print('{}: {}'.format(name, eval(name)))
                 else:                 
                     print('{} is empty'.format(name))
 

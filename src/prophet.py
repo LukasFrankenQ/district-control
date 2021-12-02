@@ -12,7 +12,7 @@ class Prophet:
     
     a database and returs time series 
     from the database superimposed with noise
-    (if mode is 'simulate')
+    (if mode is 'read')
     or
     a machine learning model and returns predictions 
     made by the model
@@ -24,13 +24,13 @@ class Prophet:
     Attributes
     ----------
     mode : str
-        'simulate' for data based time series with noise
+        'read' for data based time series with noise
         'predict' for machine learning based time series
     data : pd.Series
         full time series available from which a small exempt is
         taken at every call
     noise_scale : float 
-        (relevant only for mode == 'simulate')
+        (relevant only for mode == 'read')
         determines how much fluctuation the returned time series is subject to
         noise is sampled from a gaussian with mean=0 and std=noise_scale 
         noise increases linearly with index of time series
@@ -44,7 +44,7 @@ class Prophet:
 
     Methods
     ----------
-    predict(**args)
+    predict(**state)
         returns next time series
     
     setup_simulation(data)
@@ -54,25 +54,23 @@ class Prophet:
         sets up saved model for prediction
 
     """
-    def __init__(self, mode, snapshots, data=None, model=None, horizon=10, 
-                       noise_scale=0.05):
+    def __init__(self, snapshots, horizon, mode=None, source=None, noise_scale=0.05):
         """
         inits the class
         Also sets up the data or model that should be returned
 
         Parameters
         ----------
-        mode : str
-            either 'simulate' for data-based prophet or 
-            'predict' for machine learning model based return
         snapshots : pd.DatatimeIndex
             points in time for which predictions (simulations) will be made
-        data : str or pd.Series
-            required if mode is 'simulate'
-        model : str or tbd model type 
-            necessary if mode is 'predict'
         horizon : int
             length of time series that will be returned in predict call
+        mode : str
+            either 'read' for data-based prophet or 
+            'predict' for machine learning model based return
+        source : str or pd.Series or model
+            interpreted as data source if mode is 'read'
+            interpreted as model if mode is 'predict'
         noise_scale : float
             std of gaussian noise that is added every time step
 
@@ -86,24 +84,24 @@ class Prophet:
         self.horizon = horizon 
         self.noise_scale = noise_scale
 
-        if mode == 'simulate': 
-            assert data is not None, f'for chosen mode simulate, \
+        if mode == 'read': 
+            assert source is not None, f'for chosen mode simulate, \
                                        kwarg data has to provide either path, pd.Series or pd.DataFrame'
         if mode == 'predict': 
-            assert model is not None, f'for chosen mode predict, \
+            assert source is not None, f'for chosen mode predict, \
                                        kwarg model has to provide either path or model type (tbd)'
-        assert mode == 'predict' or mode == 'simulate', f'Please choose mode \
-                                        aversarial or predict instead of {mode}.'
+        assert mode == 'predict' or mode == 'read', f'Please choose mode \
+                                        simulate or predict instead of {mode}.'
 
-        if mode == 'simulate':
-            self.setup_simulation(data) 
+        if mode == 'read':
+            self.setup_reader(source) 
 
         elif mode == 'predict':
-            self.setup_ml(model)
+            self.setup_ml(source)
             raise NotImplementedError('implement me!')
 
 
-    def setup_simulation(self, data):
+    def setup_reader(self, data):
         """
         Either from file path or from pd.Series, sets up full available time series 
 
@@ -118,22 +116,20 @@ class Prophet:
 
         """
         if isinstance(data, str):
-            print('Set up simulating prophet from file {}!'.format(data)) 
+            print('Set up reading prophet from file {}!'.format(data)) 
             data = pd.read_csv(data, parse_dates=True, index_col=0)
             self.data = data[data.columns[-1]]
 
         elif isinstance(data, pd.Series):
-            print('Set up simulating prophet from pd.Series!')
+            print('Set up reading prophet from pd.Series!')
             self.data = data
 
         elif isinstance(data, pd.DataFrame):
-            print('Set up simulating prophet from pd.DataFrame!')
+            print('Set up reading prophet from pd.DataFrame!')
             self.data = data[data.columns[-1]]
 
         assert isinstance(data.index, pd.DatetimeIndex) is True, f'\
                     Index of received data {self.data} of is not of type pd.DatetimeIndex!'
-
-        print('Working with data: ', self.data)
 
 
     def setup_ml(self, model):
@@ -163,51 +159,71 @@ class Prophet:
         Returns
         ----------
         y : pd.Series
-            vector of predictions
+            vector of predictions. Index is in datetime format
         """
-        if self.mode == 'simulate':
+        if self.mode == 'read':
 
-            assert 't' in state, 'Passed systems state for prediction must contain t. \
-                                  Currently contains {}'.format(state)
+            assert 't' in state, f'Passed system state for read prediction must contain t. \
+                                  Currently contains {list(state)}'
 
             t = state['t']
 
             # create cumulative random noise
-            noise = np.random.normal(scale=self.noise_scale, size=self.horizon)
+            noise = np.random.normal(scale=self.noise_scale, size=self.horizon-1)
             noise = pd.Series([noise[:i+1].sum() for i in range(self.horizon)])
 
+            # format time to timestamp
             if isinstance(t, int) is not True:
+                assert t in self.data.index, f'Got timestamp {t} which is not in index of data {self.data}'
                 t = self.data.index.get_loc(t)
             
+            # cut out data within horizon
             snippet = self.data.iloc[t:t+self.horizon]
+            # make consistent index
             noise.index = self.data.index[t:t+horizon]
 
-            print(f'bare cutout {snippet}')
-            print(f'bare noise {noise}')
-            print(f'together {snippet + noise}')
-
             return snippet + noise
+
+
+        elif self.mode == 'predict':
+
+            raise NotImplementedError('Implement prediction from model')
+
 
 
 if __name__ == '__main__':
     # for testing purposes
     # create artificial time series
-    data = os.path.join(os.getcwd(), 'data', 'dummy', 'demand.csv')
-
     snapshots = pd.date_range('2020-01-01', '2020-01-02', freq='30min')
-
     horizon = 10
+
+    data_path = os.path.join(os.getcwd(), 'data', 'dummy')
+    demand_path = os.path.join(data_path, 'demand.csv')
+    supply_path = os.path.join(data_path, 'supply.csv')
+
+
+    demand_config = {'mode': 'read', 'source': demand_path, 'noise_scale': 0.05}
+    supply_config = {'mode': 'read', 'source': supply_path, 'noise_scale': 0.2}
+    names = ['demand', 'supply']
+
+    configs = {name: config for name, config in zip(names, [demand_config, supply_config])}
+
+    prophets = {key: Prophet(snapshots, horizon, **config) for key, config in configs.items()}
+
+
+
+    # initial points of returns
+    anchors = snapshots[:-horizon+1]
+
     # test for pass of filename
-    prophet = Prophet('simulate', snapshots, data=data, noise_scale=0.05, horizon=horizon)
     
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-    prophet.data.plot(ax=ax, linewidth=1.)
+    for key, prophet in prophets.items():
 
+        prophet.data.plot(ax=ax, linewidth=1.)
 
-    for i in range(10, 10+4):
-        prediction = prophet.predict(t=i)
-        prediction.plot(ax=ax, linewidth=0.7)
-        # ts.plot(ax=ax, linewidth=0.7)
+        for anchor in anchors:
+            prediction = prophet.predict(t=anchor)
+            prediction.plot(ax=ax, linewidth=0.7)
 
-    # ax.set_xlim(-1, horizon+n+1)
     plt.show()

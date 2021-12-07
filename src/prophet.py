@@ -23,12 +23,13 @@ class Prophet:
     
     Attributes
     ----------
+    snapshots : pd.DatatimeIndex
+        points in time for which predictions (simulations) will be made
+    horizon : int
+        length of returned time series
     mode : str
         'read' for data based time series with noise
         'predict' for machine learning based time series
-    data : pd.Series
-        full time series available from which a small exempt is
-        taken at every call
     noise_scale : float 
         (relevant only for mode == 'read')
         determines how much fluctuation the returned time series is subject to
@@ -37,24 +38,27 @@ class Prophet:
         i.e. Let x_t be the t-th entry of time series of quantity x.
              entry x_0 will be free of noise, entry x_t will be subject
              to gaussian noise with standard deviation t*noise_scale
-    horizon : int
-        length of returned time series
+    data : pd.Series
+        Object from which time series of length horizon are read of mode is 'read'
+        Object from which features are fed into the model if mode is 'predict' 
     model : tbd
-        machine learning model that returns time series
+        prediction model
+        None if mode is 'read'
 
     Methods
     ----------
     predict(**state)
         returns next time series
     
-    setup_simulation(data)
+    setup_reader(data)
         obtains self.data from which chunks will be returned
 
     setup_prediction(model)
         sets up saved model for prediction
 
     """
-    def __init__(self, snapshots, horizon, mode=None, source=None, noise_scale=0.05):
+    def __init__(self, snapshots, horizon, mode=None, data=None, model=None, 
+                        noise_scale=0.05, **kwargs):
         """
         inits the class
         Also sets up the data or model that should be returned
@@ -68,9 +72,9 @@ class Prophet:
         mode : str
             either 'read' for data-based prophet or 
             'predict' for machine learning model based return
-        source : str or pd.Series or model
+        data : str or pd.Series or pd.DataFrame
             interpreted as data source if mode is 'read'
-            interpreted as model if mode is 'predict'
+            interpreted as data for features if mode is 'predict' 
         noise_scale : float
             std of gaussian noise that is added every time step
 
@@ -79,25 +83,27 @@ class Prophet:
         -
         """
 
-        self.mode = mode
         self.snapshots = snapshots
         self.horizon = horizon 
+        self.mode = mode
         self.noise_scale = noise_scale
+        self.data = None
+        self.model = None
 
         if mode == 'read': 
-            assert source is not None, f'for chosen mode simulate, \
+            assert data is not None, f'for chosen mode simulate, \
                                        kwarg data has to provide either path, pd.Series or pd.DataFrame'
         if mode == 'predict': 
-            assert source is not None, f'for chosen mode predict, \
-                                       kwarg model has to provide either path or model type (tbd)'
+            assert data is not None, f'for chosen mode predict, \
+                                       kwarg model has to provide either path to or the features themselves'
         assert mode == 'predict' or mode == 'read', f'Please choose mode \
                                         simulate or predict instead of {mode}.'
 
         if mode == 'read':
-            self.setup_reader(source) 
+            self.setup_reader(data) 
 
         elif mode == 'predict':
-            self.setup_ml(source)
+            self.setup_ml(data)
             raise NotImplementedError('implement me!')
 
 
@@ -180,10 +186,9 @@ class Prophet:
             # cut out data within horizon
             snippet = self.data.iloc[t:t+self.horizon]
             # make consistent index
-            noise.index = self.data.index[t:t+horizon]
+            noise.index = self.data.index[t:t+self.horizon]
 
             return snippet + noise
-
 
         elif self.mode == 'predict':
 
@@ -201,7 +206,6 @@ if __name__ == '__main__':
     demand_path = os.path.join(data_path, 'demand.csv')
     supply_path = os.path.join(data_path, 'supply.csv')
 
-
     demand_config = {'mode': 'read', 'source': demand_path, 'noise_scale': 0.05}
     supply_config = {'mode': 'read', 'source': supply_path, 'noise_scale': 0.2}
     names = ['demand', 'supply']
@@ -209,7 +213,6 @@ if __name__ == '__main__':
     configs = {name: config for name, config in zip(names, [demand_config, supply_config])}
 
     prophets = {key: Prophet(snapshots, horizon, **config) for key, config in configs.items()}
-
 
 
     # initial points of returns

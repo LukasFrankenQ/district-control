@@ -1,4 +1,3 @@
-
 import sys
 import os
 import pypsa
@@ -7,6 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from itertools import product
 plt.style.use('bmh')
+
+from prophet import Prophet
 
 
 class Controller:
@@ -20,7 +21,7 @@ class Controller:
     ----------
     pypsa_components : list of str
         lists components inherent to pypsa networks: generators, loads, links, stores, storages
-    control_names : list of str
+    control_config : dict of str of str
         list of network components that are subject to MPC
         have to be unique names among all network components, i.e. a generator can not 
         have the same name as a load
@@ -63,9 +64,9 @@ class Controller:
         extracts control suggestions from an address-tuple
     """
 
-    pypsa_components = ['generators', 'loads', 'links', 'stores']
+    pypsa_components = ['generators', 'loads', 'links', 'stores', 'lines']
 
-    def __init__(self, network, controls):
+    def __init__(self, network, total_snapshots, config, horizon):
         """
         Initiates class by first creating a dataframe for all objects subject to control
 
@@ -73,26 +74,40 @@ class Controller:
         ----------
         network: pypsa.Network
             instance subject to control
-        controls : list of str 
-            unique names of network parts that are subject to control. See class attributes for further
-            instructions on formatting
+
+        config : TBD
+
+        horizon : int
+            length of rolling horizon
 
         Returns:
         ----------
         -
 
         """
-        self.control_names = controls
-        self.controls_t = pd.DataFrame(columns=controls)
-        self.costs_t = pd.DataFrame(columns=controls)
-        self.addresses = self.get_addresses(network, controls) 
-        self.horizon = len(network.snapshots)
+
+        self.config = config
+        self.total_snapshots = total_snapshots
+        self.control_names = list(config)
+        self.controls_t = pd.DataFrame(columns=list(config))
+        self.costs_t = pd.DataFrame(columns=list(config))
+        
+        self.addresses = self.get_addresses(network, config)
+
+        self.horizon = horizon
+        self.prophets = {}
+
+        # for comp, prophets in config.items():
+        for (comp, kind, name, idx) in self.addresses:
+
+            self.prophets[(comp, kind, name, idx)] = \
+                    Prophet(total_snapshots, horizon, **config[name][idx])
 
         self.curr_t = 0
         self.op_cost = 0.
 
 
-    def mpc_step(self, network, prophet):
+    def mpc_step(self, network, snapshots, state):
         """
         Main method of Controller; 
 
@@ -107,6 +122,8 @@ class Controller:
         
             Executes the following:
 
+            0) Obtains data from prophets
+
             1) Extracts the next control operation proposed by lopf
             2) Sets up the resulting control as initial conditions for next optimization
             
@@ -114,17 +131,48 @@ class Controller:
             4) Compares constraints posed by control and by predictions and sets up
                overall constrains that conform with both
 
-            5) Error magagement stage
+            5) Error management stage
 
         Parameters
         ----------
         network : pypsa.Network
             subject to control
-
-        prophet : Prophet as in prophet.py
-            responsible for updating predictions
+        snapshots : pd.Series
+            snapshots for next lopf
+        state : dict
+            contains current system state
         """
 
+        network.set_snapshots(snapshots)
+
+        # obtain current predictions
+        for address in self.addresses:
+            comp, kind, name, idx = address
+
+            # obtain predicted time series
+            time_series = self.prophets[address].predict(**state)
+
+            # put that series as constraint into the model
+            getattr(getattr(network, comp), kind)[name] = time_series 
+
+
+
+
+        self.show_current_ts(network)
+
+        # conduct lopf 
+        print('snapshots')
+        print(network.snapshots)
+        network.lopf(solver_name='gurobi')
+
+
+
+
+
+
+
+
+        '''
         # obtain next mpc step from lopf network
         curr_control = {address[1]: self.get_control(network, address) for address in self.addresses}
         curr_costs = {address[1]: self.get_cost(network, address) for address in self.addresses}
@@ -144,71 +192,72 @@ class Controller:
         
         print('After setting constraints:')
         self.show_controllables(network)
+        '''
 
 
-    def set_constraint(self, network, address, value):
-        """
-        sets up upper and lower bounds in the first time step of the 
-        next lopf optimization 
+    def show_current_ts(self, network):
+        '''
+        Helper function to show the current time series in the network
 
         Parameters
         ----------
         network : pypsa.Network
             network under investigation
-        address : tuple
-            stores (component, name) for easy access to relevant quantities in 
-            network's dataframes
-        value : 0 <= float <= 1
-            value at which that component should start from in next lopf
 
         Returns
         ----------
         -
-        
-        """
 
-        component, name = address
+        '''
+        have_shown = set()
+        for address in self.addresses:
+            comp, _, _, _ = address
+            if not comp in have_shown:
 
-        upper = pd.Series([value] + np.ones(self.horizon-1).tolist())
-        lower = pd.Series([value] + np.zeros(self.horizon-1).tolist())
-
-        if component in {'generators', 'loads', 'links'}:
-            getattr(getattr(network, component+'_t'), 'p_min_pu')[name] = lower
-            getattr(getattr(network, component+'_t'), 'p_max_pu')[name] = upper
-
-        elif component == 'stores':
-            getattr(getattr(network, component+'_t'), 'e_min_pu')[name] = lower
-            getattr(getattr(network, component+'_t'), 'e_max_pu')[name] = upper
+                have_shown.add(comp)
+                print('{}:'.format(comp))
+                print(getattr(network, comp)) 
+                print('------------')
 
 
-    def get_addresses(self, network, controls):   
+    def get_addresses(self, network, config):   
         '''
         creates component-name pairs that make is easy to access the control
         suggested by lopf
+        Also sets values as the desired constant value if prophet
 
         Parameters
         ----------
         network : pypsa.Network
             Network instance to be controlled
-        controls : list of str
-            names of network components to be controlled
+        controls : dict of list of dicts
+            see tbd for documentation on this object
 
         Returns
         ----------
         addresses : list of tuples
-            list of tuples (component, name) such that network.component.name accesses
-            the obtained control
+            list of tuples (component, quantity, name, mode) such 
+            that network.component_t[quantity][name] accesses the
+            desired time series.
         '''
 
         addresses = []
 
-        for component, name in product(Controller.pypsa_components, controls):
+        for component, (name, prophets) in product(Controller.pypsa_components, config.items()):
 
-            if name in getattr(network, component).index:
-                addresses.append((component, name))
+            for idx, prophet in enumerate(prophets): 
 
-        # make sure all controls are found and no controls 
-        assert len(addresses) == len(controls), 'Assignment between controls and addresses not 1-to-1!'
+                if prophet['mode'] == 'read' or prophet['mode'] == 'predict':
+                    if name in getattr(network, component).index:
+                        addresses.append((component+'_t', prophet['kind'], name, idx))
+
+
+                elif prophet['mode'] == 'fix':
+                    if name in getattr(network, component).index:
+
+                        comp_df = getattr(network, component)
+                        comp_df.at[name, prophet['kind']] = prophet['value']
+                        setattr(network, component, comp_df)
 
         return addresses
 
@@ -318,6 +367,32 @@ class Controller:
                     print('{} is empty'.format(name))
 
 
+def make_small_network():
+    '''
+    creates 3 bus network:
+    house (predicted demand)
+    wind farm (predicted supply)
+    plant (fixed high price)
+    '''
+
+    network = pypsa.Network()
+    network.add('Bus', 'bus pv', carrier='elec')
+    network.add('Bus', 'bus plant', carrier='elec')
+    network.add('Bus', 'bus house', carrier='elec')
+
+    network.add('Load', 'house', bus='bus house', carrier='elec')
+    network.add('Generator', 'pv', bus='bus pv', carrier='elec')
+    network.add('Generator', 'plant', bus='bus plant', carrier='elec')
+
+    network.add('Link', 'pv link', bus0='bus pv', bus1='bus house', carrier='elec',
+                efficiency=1.)
+    network.add('Link', 'plant link', bus0='bus plant', bus1='bus house', carrier='elec',
+                efficiency=1.)
+
+    return network
+
+
+
 if __name__ == '__main__':
     print(os.getcwd())
     sys.path.append(os.path.join(os.getcwd(), 'src', 'utils'))
@@ -325,7 +400,98 @@ if __name__ == '__main__':
     from network_helper import make_simple_lopf
     from network_utils import show_results
 
-    network = make_simple_lopf()
+    network = make_small_network()
+
+
+    # network.lopf(solver_name='gurobi')
+
+    # print('[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[')    
+
+
+    total_snapshots = pd.date_range('2020-01-01', '2020-02-01', freq='30min')
+    t_steps = 25
+    horizon = 13
+    total_snapshots = total_snapshots[:t_steps]
+
+
+    print(os.getcwd())
+    data_path = os.path.join(os.getcwd(), 'data', 'dummy')
+
+    '''
+    information on components of network and the time series subject to (predicted)
+    constraints. Data format:
+    dict of sets of dict
+
+    This should be their content:
+    outer dict:
+        each key refers to a component in the network (key must be unique and refer to name given in pypsa network)
+    set:
+        set of dicts, each addressing contraints on a quantity during the lopf optimization
+    inner dict:
+        mandatory keys:
+            'kind': quantity during the lopf optimization (p_max_pu, marginal_cost, p_min_pu, p_set etc...)
+            'mode': if 'fix' set to constant value during lopf
+                    if 'read' quantity is time series and read from data with optionally superimposed with noise 
+                    if 'predict' quantity is time series and predicted by ml model
+            'data': if mode is 'read': pd.Series or pd.DataFrame or path to csv with data to be read 
+                    if mode is 'predict': pd.Series or pd.DataFrame or path to csv with features for model
+            'model': (for mode predict only) model object        TBD
+            'value': (for mode fix only) constant value to be set
+        
+        optional keys:
+            'noise_scale': standard deviation of gaussian noise induced per step (default=0.05)
+
+
+
+    '''
+
+    pd.set_option('display.max_columns', None)
+    prophets_config = {
+            'pv': [
+                    {
+                     'kind': 'p_max_pu', 
+                     'mode': 'read', 
+                     'data': os.path.join(data_path, 'supply.csv')
+                     },
+                  ],
+            'house': [
+                    {
+                     'kind': 'p_set', 
+                     'mode': 'read', 
+                     'data': os.path.join(data_path, 'demand.csv')
+                    },
+                  ],
+            'plant': [
+                    {
+                     'kind': 'marginal_cost',
+                     'mode': 'fix',
+                     'value': 1. 
+                    }
+                  ]
+            }
+
+
+    mpc = Controller(network, total_snapshots, prophets_config, horizon)
+
+    for t in range(t_steps - horizon):
+
+        snapshots = total_snapshots[t:t+horizon]
+
+        state = {'t': t}
+        # snapshots = total_snapshots[step:step+horizon]
+        mpc.mpc_step(network, snapshots, state)
+
+
+
+
+        break
+
+    '''
+
+    network.set_snapshots(snapshots)
+
+
+
     controls = ['wind', 'gas', 'Boiler', 'HP',
                 'Thermal Storage', 'Charge Storage',
                 'Discharge Storage']
@@ -337,3 +503,4 @@ if __name__ == '__main__':
 
     fig, ax = plt.subplots(1, 1)
     plt.show()
+    '''

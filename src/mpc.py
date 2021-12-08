@@ -107,7 +107,8 @@ class Controller:
         self.op_cost = 0.
 
 
-    def mpc_step(self, network, snapshots, state):
+    def mpc_step(self, network, snapshots, state, plot_constraints=False,
+                        ax=None):
         """
         Main method of Controller; 
 
@@ -141,6 +142,8 @@ class Controller:
             snapshots for next lopf
         state : dict
             contains current system state
+        plot_constraints : bool
+            call plotting fct if True
         """
 
         network.set_snapshots(snapshots)
@@ -151,19 +154,47 @@ class Controller:
 
             # obtain predicted time series
             time_series = self.prophets[address].predict(**state)
+            if ax is not None:
+                time_series.plot(ax=ax, linewidth=0.5)
 
             # put that series as constraint into the model
             getattr(getattr(network, comp), kind)[name] = time_series 
 
+            # extract time steps that are considered during the 
 
 
 
-        self.show_current_ts(network)
+        if plot_constraints: self.plot_constraints(network)
 
-        # conduct lopf 
-        print('snapshots')
+        print('attempting solve with snaptshots: ')
         print(network.snapshots)
         network.lopf(solver_name='gurobi')
+
+        control_vals = {}
+
+        print('all addresses')
+        print(self.addresses)
+
+        for comp in self.pypsa_components:
+            
+            print(comp)
+            control = self.get_control(network, comp)
+            if not control.empty:
+                control_vals[comp] = control
+
+            # print('NEW EXTRACTION111!!!') 
+            # print('Extracting from control:')
+            # print(getattr(network, comp))
+            # control = self.get_control(network, (comp, kind, name, idx))
+            # init_vals[name] = control
+            # print('obtained {}: {}'.format(name, control))
+
+        print('resulting init vals')
+        for key, item in control_vals.items():
+            print('{}:\n {}'.format(key, item))
+            print('item type: ', type(item))
+            print('has index: ', item.index)
+
 
 
 
@@ -236,8 +267,8 @@ class Controller:
         Returns
         ----------
         addresses : list of tuples
-            list of tuples (component, quantity, name, mode) such 
-            that network.component_t[quantity][name] accesses the
+            list of tuples (component, kind, name, index) such 
+            that network.component_t[kind][name] accesses the
             desired time series.
         '''
 
@@ -251,7 +282,6 @@ class Controller:
                     if name in getattr(network, component).index:
                         addresses.append((component+'_t', prophet['kind'], name, idx))
 
-
                 elif prophet['mode'] == 'fix':
                     if name in getattr(network, component).index:
 
@@ -262,7 +292,7 @@ class Controller:
         return addresses
 
 
-    def get_control(self, network, address):
+    def get_control(self, network, comp):
         '''
         takes a network that has undergone lopf optimization 
         and an address and returns the proposed time series associated with that
@@ -275,8 +305,8 @@ class Controller:
         ----------
         network : pypsa.Network
             network under investigation
-        address : tuple
-            pair of component and name that refers to a controlled object in the network
+        comp : str 
+            attribute of pypsa containing time series of power
 
         Returns
         ----------
@@ -284,19 +314,31 @@ class Controller:
             first entry of the pd.Series found
         '''
 
-        component, name = address
-        assert hasattr(network, component+'_t'), "Network has not been lopf optimized over multiple snapshots"
+
+        assert hasattr(network, comp+'_t'), "Network has not been lopf optimized over multiple snapshots"
         
-        time_series = getattr(network, component+'_t')
+        time_series = getattr(network, comp+'_t')
 
-        if component == 'stores':
-            control = time_series.e.at[1, name]
+        print('time series')
+        print(time_series)
 
-        elif component == 'links':
-            control = time_series.p0.at[1, name]
+        if comp == 'stores':
+            # control = time_series.e.at[1, name]
+            control = time_series.e.iloc[1]
+
+        elif comp == 'links' or comp == 'lines':
+            # control = time_series.p0.at[1, name]
+            control = time_series.p0.iloc[1]
 
         else:
-            control = time_series.p.at[1, name]
+            # control = time_series.p.at[1, name]
+            control = time_series.p.iloc[1]
+
+        print('------------------')
+        print('control')
+        print(control)
+
+        print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
 
         return control
 
@@ -367,6 +409,61 @@ class Controller:
                     print('{} is empty'.format(name))
 
 
+    def plot_constraints(self, network):
+        '''
+        Creates a plot of all time series in the system
+
+        Parameters
+        ----------
+        network : pypsa.Network
+            we want to plot quantities of this network
+        
+        Returns
+        ----------
+        -
+
+        '''
+
+        fig, ax = plt.subplots(1, 1, figsize=(16, 7))
+
+        plot_df = pd.DataFrame(index=network.snapshots, columns=[])
+
+        # gather time dependent quantitites
+        for comp in Controller.pypsa_components:
+
+            for kind, df in getattr(network, comp+'_t').items():
+                if not df.empty:
+                    for col in df.columns:                    
+                        plot_df[col+': '+kind] = df[col]
+
+        # add constant values
+        of_interest = ['p_min_pu', 'p_max_pu', 'marginal_cost']
+
+        for comp in Controller.pypsa_components:
+            if not getattr(network, comp).empty:
+                df = getattr(network, comp)
+
+                for col in [entry for entry in of_interest if entry in df.columns]:
+                    for name, row in df.iterrows():
+                        if not name+': '+col in plot_df.columns:
+                            plot_df[name+': '+col] = np.ones(len(plot_df)) * row[col] + \
+                                                    np.random.normal(scale=0.01)
+
+        plot_df.plot(ax=ax, linewidth=2., linestyle='-')
+
+        plt.show()
+
+
+
+
+
+
+
+    
+
+
+
+
 def make_small_network():
     '''
     creates 3 bus network:
@@ -376,18 +473,26 @@ def make_small_network():
     '''
 
     network = pypsa.Network()
-    network.add('Bus', 'bus pv', carrier='elec')
-    network.add('Bus', 'bus plant', carrier='elec')
-    network.add('Bus', 'bus house', carrier='elec')
 
-    network.add('Load', 'house', bus='bus house', carrier='elec')
-    network.add('Generator', 'pv', bus='bus pv', carrier='elec')
-    network.add('Generator', 'plant', bus='bus plant', carrier='elec')
+    network.add('Bus', 'bus0')
+    network.add('Bus', 'bus1')
+    network.add('Bus', 'bus2')
 
-    network.add('Link', 'pv link', bus0='bus pv', bus1='bus house', carrier='elec',
-                efficiency=1.)
-    network.add('Link', 'plant link', bus0='bus plant', bus1='bus house', carrier='elec',
-                efficiency=1.)
+    # network.add('Load', 'house', bus='bus0', p_nom=1, p_set=pd.Series(0.5*np.ones(len(snapshots))))
+    
+    # pv_cost = pd.Series(0.01 * np.ones(len(snapshots))) 
+    # pv_cost.index = snapshots
+
+    network.add('Load', 'house', bus='bus0', p_set=0.5, p_nom=1)
+    network.add('Generator', 'pv', bus='bus1', p_nom=1.,
+                        ramp_limit_up=0.2, ramp_limit_down=0.2)
+    network.add('Generator', 'plant', bus='bus2', p_nom=1.,
+                        ramp_limit_up=0.2, ramp_limit_down=0.2)
+
+    network.add('Link', 'pv link', bus0='bus1', bus1='bus0',
+                efficiency=1., p_nom=1)
+    network.add('Link', 'plant link', bus0='bus2', bus1='bus0',
+                efficiency=1., p_nom=1)
 
     return network
 
@@ -401,12 +506,6 @@ if __name__ == '__main__':
     from network_utils import show_results
 
     network = make_small_network()
-
-
-    # network.lopf(solver_name='gurobi')
-
-    # print('[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[')    
-
 
     total_snapshots = pd.date_range('2020-01-01', '2020-02-01', freq='30min')
     t_steps = 25
@@ -441,8 +540,6 @@ if __name__ == '__main__':
         optional keys:
             'noise_scale': standard deviation of gaussian noise induced per step (default=0.05)
 
-
-
     '''
 
     pd.set_option('display.max_columns', None)
@@ -457,7 +554,8 @@ if __name__ == '__main__':
             'house': [
                     {
                      'kind': 'p_set', 
-                     'mode': 'read', 
+                     'mode': 'read',
+                     'noise_scale': 0.005, 
                      'data': os.path.join(data_path, 'demand.csv')
                     },
                   ],
@@ -471,36 +569,28 @@ if __name__ == '__main__':
             }
 
 
+
     mpc = Controller(network, total_snapshots, prophets_config, horizon)
+
+    fig, ax = plt.subplots(1, 1, figsize=(16,4))
+
+    init_values = {'pv': 0.5, 'plant': 0.5}
+
+
+    for _, prophet in mpc.prophets.items():
+        prophet.data.plot(ax=ax)
 
     for t in range(t_steps - horizon):
 
         snapshots = total_snapshots[t:t+horizon]
 
         state = {'t': t}
-        # snapshots = total_snapshots[step:step+horizon]
-        mpc.mpc_step(network, snapshots, state)
 
-
-
+        print('BEGINNING THE MPC STEP')
+        mpc.mpc_step(network, snapshots, state, plot_constraints=False, ax=ax)
 
         break
 
-    '''
-
-    network.set_snapshots(snapshots)
-
-
-
-    controls = ['wind', 'gas', 'Boiler', 'HP',
-                'Thermal Storage', 'Charge Storage',
-                'Discharge Storage']
-
-    mpc = Controller(network, controls)
-    mpc.mpc_step(network)
-
-    print('Its a done job init!')
-
-    fig, ax = plt.subplots(1, 1)
     plt.show()
-    '''
+
+

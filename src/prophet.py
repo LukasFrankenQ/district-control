@@ -87,7 +87,7 @@ class Prophet:
         self.horizon = horizon 
         self.mode = mode
         self.noise_scale = noise_scale
-        self.data = None
+        self.data = data  
         self.model = None
 
         if mode == 'read': 

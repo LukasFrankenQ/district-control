@@ -153,14 +153,16 @@ class Prophet:
         raise NotImplementedError('implement me!')
 
     
-    def predict(self, **state):
+    def predict(self, time):
         """
         Returns prediction based on current state of the system
 
         Parameters
         ----------
-        state : dict
-            reflects current system state
+        time : pd.Timestamp 
+            reflects current system time
+            Note that for both mode 'read' and 'predict' this is the
+            only required information as it points to the respective data
         
         Returns
         ----------
@@ -169,24 +171,19 @@ class Prophet:
         """
         if self.mode == 'read':
 
-            assert 't' in state, f'Passed system state for read prediction must contain t. \
-                                  Currently contains {list(state)}'
-
-            t = state['t']
-
             # create cumulative random noise
             noise = np.random.normal(scale=self.noise_scale, size=self.horizon-1)
             noise = pd.Series([noise[:i+1].sum() for i in range(self.horizon)])
 
             # format time to timestamp
-            if isinstance(t, int) is not True:
-                assert t in self.data.index, f'Got timestamp {t} which is not in index of data {self.data}'
-                t = self.data.index.get_loc(t)
+            if isinstance(time, int) is not True:
+                assert time in self.data.index, f'Got timestamp {time} which is not in index of data {self.data}'
+                time = self.data.index.get_loc(time)
             
             # cut out data within horizon
-            snippet = self.data.iloc[t:t+self.horizon]
+            snippet = self.data.iloc[time+1:time+self.horizon+1]
             # make consistent index
-            noise.index = self.data.index[t:t+self.horizon]
+            noise.index = self.data.index[time+1:time+self.horizon+1]
 
             return snippet + noise
 

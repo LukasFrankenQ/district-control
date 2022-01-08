@@ -33,7 +33,6 @@ release = '18/12/2021'
 extensions = [
     'sphinx.ext.duration',
     'sphinx.ext.autodoc',
-    'furo'
 ]
 
 # Add any paths that contain templates here, relative to this directory.

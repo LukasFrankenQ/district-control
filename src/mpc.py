@@ -651,12 +651,12 @@ if __name__ == '__main__':
 
     init_values = {'pv': 0., 'plant': 0.5, 'house': 0.5}
 
-    mpc = Controller(make_small_network(), total_snapshots, prophets_config, horizon, init_values=init_values, solver_name='glpk')
+    mpc = Controller(make_small_network(), total_snapshots, prophets_config, horizon, init_values=init_values, solver_name='gurobi')
 
-    fig, axs = plt.subplots(2, 1, figsize=(16,8))
+    fig, ax = plt.subplots(1, 1, figsize=(16,4))
 
     for _, prophet in mpc.prophets.items():
-        prophet.data.plot(ax=axs[0])
+        prophet.data.plot(ax=ax)
 
     for time in range(t_steps - horizon - 1):
         
@@ -664,15 +664,17 @@ if __name__ == '__main__':
 
         snapshots = total_snapshots[time:time+horizon+1]
         mpc.mpc_step(make_small_network, snapshots, plot_constraints=False, 
-                    ax=axs[0])
+                    ax=ax)
 
 
-    mpc.controls_t[init_values].plot(ax=axs[0], linestyle=':')
-    mpc.costs_t.plot(ax=axs[1])
+    mpc.controls_t[init_values].plot(ax=ax, linestyle=':')
+    # mpc.costs_t.plot(ax=axs[1])
     
-    for ax, ylabel in zip(axs, ['power flow', 'marginal costs']):
-        ax.set_ylabel(ylabel)
+    ax.set_ylabel('Power Flow')
+    ax.set_xlabel('Time')
+    # ax.legend()
 
+    # plt.savefig('mpc_example.png', dpi=300)
     plt.show()
 
 

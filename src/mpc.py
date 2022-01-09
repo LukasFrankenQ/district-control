@@ -66,7 +66,7 @@ class Controller:
 
     pypsa_components = ['generators', 'loads', 'links', 'stores', 'lines']
 
-    def __init__(self, network, total_snapshots, config, horizon, init_values=None):
+    def __init__(self, network, total_snapshots, config, horizon, init_values=None, solver_name='gurobi'):
         """
         Initiates class by first creating a dataframe for all objects subject to control
 
@@ -107,6 +107,7 @@ class Controller:
         -
 
         """
+        self.solver_name = solver_name
 
         self.config = config
         self.total_snapshots = total_snapshots
@@ -224,7 +225,7 @@ class Controller:
 
         if plot_constraints: self.plot_constraints(network)
 
-        network.lopf(solver_name='gurobi')
+        network.lopf(solver_name=self.solver_name)
 
         # obtain control for next time step
         fix_time = snapshots[1]
@@ -650,7 +651,7 @@ if __name__ == '__main__':
 
     init_values = {'pv': 0., 'plant': 0.5, 'house': 0.5}
 
-    mpc = Controller(make_small_network(), total_snapshots, prophets_config, horizon, init_values=init_values)
+    mpc = Controller(make_small_network(), total_snapshots, prophets_config, horizon, init_values=init_values, solver_name='glpk')
 
     fig, axs = plt.subplots(2, 1, figsize=(16,8))
 

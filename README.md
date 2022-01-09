@@ -21,3 +21,7 @@ Additionally, a linear solver is needed. For this, please refer to the [PyPSA in
 ### Examples
 
 A minimal but illustrative example is presented in our [readthedocs](https://district-control.readthedocs.io/en/latest/). Feel free to take a look!
+
+##### Contact
+
+I am always happy about feedback and for people to contribute, feel free to reach out at [lukas.franken@ed.ac.uk](lukas.franken@ed.ac.uk).

@@ -24,4 +24,4 @@ A minimal but illustrative example is presented in our [readthedocs](https://dis
 
 ##### Contact
 
-I am always happy about feedback and for people to contribute, feel free to reach out at [lukas.franken@ed.ac.uk](lukas.franken@ed.ac.uk).
+I am always happy about feedback and for people to contribute, feel free to reach out at <lukas.franken@ed.ac.uk>

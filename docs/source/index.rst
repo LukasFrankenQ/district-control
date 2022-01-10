@@ -119,5 +119,9 @@ We recommend to pass as `axis`-object as a keyword argument to the `mpc.mpc_step
 obtain an illustration of the results (see the notebook of this example). This is the result:
 
 .. image:: imgs/mpc_example.png
-   :width: 500
+   :width: 900
 
+How it works
+############
+
+(work in progress)

@@ -5,7 +5,7 @@
 
 Welcome to an overview of the basics of district_control (working title)
 =====================================
-This repository provides an easy and slim toolkit to use the power of PyPSA  
+This repository provides an accessible and slim toolkit to use the power of PyPSA  
 in the context of **Model predictive control**.
 
 
@@ -43,7 +43,7 @@ dispatchable generation `'plant'`.
    def make_small_network():
        ...
 
-Next, we set up the overall timeframe of control and define the horizon
+Next, we set up the overall timeframe of control and define the horizon.
 
 .. code-block:: python
 
@@ -53,8 +53,9 @@ Next, we set up the overall timeframe of control and define the horizon
 
 We now define which quantities are subject to prediction. For `'pv'` we predict `p_max_pu` and
 for the `'house'` we predict `p_set`. Another quantity we want to fix (not predict) is the plant's
-`marginal_cost`. Note that this example uses `Prophet`-objects in `'read'` mode. Hence, they
-do not use machine learning models and instead read off data and add noise artificially. Including
+`marginal_cost`. For each we create a `Prophet`-object, as defined in `prophet.py`. These are central to
+this repo and are responsible for returning time series of a desired quantity. Note that this example uses `Prophet`-objects in `'read'` mode. Hence, they
+do not use machine learning models and instead read off data and add noise artificially. The inclusion of
 actual ML models is a work in progress.
 
 .. code-block:: python
@@ -85,7 +86,7 @@ actual ML models is a work in progress.
                   ]
          }
 
-We also set initial values
+We also set initial values.
 
 .. code-block:: python
 
@@ -115,8 +116,8 @@ To run the model predictive control, call the `mpc.mpc_step(...)` function:
                   snapshots)
 
 After this, the `mpc` object stores the overall control chosen and the related cost.
-We recommend to pass as `axis`-object as a keyword argument to the `mpc.mpc_step(ax=ax)` to
-obtain an illustration of the results (see the notebook of this example). This is the result:
+We recommend to pass as `axis`-object as a keyword argument to the `mpc.mpc_step(..., ax=ax)` to
+obtain an illustration of the results (`see the notebook of this example <https://github.com/LukasFrankenQ/district_control/blob/master/examples/basic_example.ipynb>`_). This is the result:
 
 .. image:: imgs/mpc_example.png
    :width: 900

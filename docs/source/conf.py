@@ -17,7 +17,7 @@
 
 # -- Project information -----------------------------------------------------
 
-project = 'EnergyMPC (working title)'
+project = 'district-control (working title)'
 copyright = '2021, Lukas'
 author = 'Lukas'
 

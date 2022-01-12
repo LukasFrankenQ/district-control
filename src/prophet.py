@@ -97,7 +97,7 @@ class Prophet:
             assert data is not None, f'for chosen mode predict, \
                                        kwarg model has to provide either path to or the features themselves'
         assert mode == 'predict' or mode == 'read', f'Please choose mode \
-                                        simulate or predict instead of {mode}.'
+                                        read or predict instead of {mode}.'
 
         if mode == 'read':
             self.setup_reader(data) 
